@@ -3,3 +3,10 @@ venv/
 .idea/
 clustering_algorithm.py
 clustering_results.py
+clustering_algorithms.py
+junk.py
+KMP_clusters
+KMP_clustering_results
+simulation.py
+clustering_plot.py
+case_studies.py

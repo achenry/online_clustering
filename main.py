@@ -1,85 +1,359 @@
 from input_data_reader import InputDataReader
 from input_parameter_reader import InputParameterReader
-from clustering_algorithms2 import Feature, KMeansPlus, GravitationalKMeansPlus
+from clustering_algorithms2 import Feature, OnlineKMeansPlus, OnlineOptimalKMeansPlus, OfflineOptimalKMeansPlus
 from clustering_results2 import ClusteringResults
 import numpy as np
+import os
+from datetime import datetime
+import multiprocessing as mp
 
 
 def main():
+    # open shelve
+    # shelf = shelve.open('db')
 
-    input_parameter_reader = InputParameterReader()
-    input_parameter_reader.read_input_parameters()
-    data_type = input_parameter_reader.data_type
-    batch_size = input_parameter_reader.batch_size
-    init_batch_size = input_parameter_reader.init_batch_size
-    init_num_clusters = input_parameter_reader.init_num_clusters
-    tol = input_parameter_reader.tol
-    max_iter = input_parameter_reader.max_iter
-    gravitational_const = input_parameter_reader.gravitational_const  # * 10**(-11)
-    k_change_threshold = input_parameter_reader.k_change_threshold
-    algorithm = input_parameter_reader.algorithm
-    quick_test = input_parameter_reader.quick_test
-    test_name = input_parameter_reader.test_name
-    test_params = input_parameter_reader.test_params
+    # make required results directory
+    if not os.path.exists("./results"):
+        os.mkdir("./results")
 
-    data_stream_reader = InputDataReader()
+    scenarios = {'Offline Optimal-K Crisp KMeans++': {'algorithm': 2, 'alpha': 0.05, 'fuzziness': 1},  # 0
+                 'Offline Optimal-K Fuzzy KMeans++': {'algorithm': 2, 'alpha': 0.05, 'fuzziness': 2},  # 1
 
-    # if reading load_pattern data, where features correspond to half-hour time intervals
-    if data_type == 0:
-        data_stream_reader.read_load_pattern_data()
-        data_stream = data_stream_reader.data
-        features = [Feature('Energy_' + str(hour)) for hour in np.arange(0, 24, 0.5)]
-    # elif reading load time-series data, where features correspond to power value and timestamp components
-    elif data_type == 1:
-        data_stream_reader.read_load_time_series_data()
-        data_stream = data_stream_reader.data[['Month', 'DayOfWeek', 'Hour', 'Energy']]
-        features = [Feature('Hour', lb=0, ub=24, step=0.5), Feature('Energy')]
-        # features = [Feature('Energy')]
+                 'Online Periodic-K Crisp KMeans++': {'algorithm': 0, 'fuzziness': 1, 'init_num_clusters': 8},  # 2
+                 'Online Periodic-K Fuzzy KMeans++': {'algorithm': 0, 'fuzziness': 2, 'init_num_clusters': 8},  # 3
 
+                 'Online Optimal-K Crisp KMeans++ Window-Size 2': {'algorithm': 1, 'window_size': 2, 'alpha': 0.05,  # 4
+                                                                   'gravitational_const': 1, 'fuzziness': 1,
+                                                                   'init_num_clusters': 2},
+                 'Online Optimal-K Crisp KMeans++ Window-Size 4': {'algorithm': 1, 'window_size': 4, 'alpha': 0.05,  # 5
+                                                                   'gravitational_const': 1, 'fuzziness': 1,
+                                                                   'init_num_clusters': 2},
+                 'Online Optimal-K Crisp KMeans++ Window-Size 8': {'algorithm': 1, 'window_size': 8, 'alpha': 0.05,  # 6
+                                                                   'gravitational_const': 1, 'fuzziness': 1,
+                                                                   'init_num_clusters': 2},
 
-    clustering_results = ClusteringResults(data_stream, features)
+                 'Online Optimal-K Fuzzy KMeans++ Window-Size 2': {'algorithm': 1, 'window_size': 2, 'alpha': 0.05,  # 7
+                                                                   'gravitational_const': 1, 'fuzziness': 2,
+                                                                   'init_num_clusters': 2},
+                 'Online Optimal-K Fuzzy KMeans++ Window-Size 4': {'algorithm': 1, 'window_size': 4, 'alpha': 0.05,  # 8
+                                                                   'gravitational_const': 1, 'fuzziness': 2,
+                                                                   'init_num_clusters': 2},
+                 'Online Optimal-K Fuzzy KMeans++ Window-Size 8': {'algorithm': 1, 'window_size': 8, 'alpha': 0.05,  # 9
+                                                                   'gravitational_const': 1, 'fuzziness': 2,
+                                                                   'init_num_clusters': 2},
 
-    # Online Periodic K-Means++
-    if algorithm == 0:
-        clustering_algorithm = KMeansPlus(features, init_num_clusters, batch_size, init_batch_size, window_size=100)
-    # Online gravitational optimal Kmeans++
-    elif algorithm == 1:
-        # Gravitational SSE K-Means++
-        clustering_algorithm = GravitationalKMeansPlus(features,
-                                                       init_num_clusters=init_num_clusters,
-                                                       batch_size=batch_size,
-                                                       init_batch_size=init_batch_size,
-                                                       outlier_threshold=k_change_threshold,
-                                                       gravitational_const=gravitational_const,
-                                                       window_size=100)
+                 'Online Optimal-K Crisp KMeans++ Window-Size 2 Alpha 0.025': {'algorithm': 1, 'alpha': 0.025,  # 10
+                                                                               'window_size': 2,
+                                                                               'gravitational_const': 1,
+                                                                               'fuzziness': 1,
+                                                                               'init_num_clusters': 2},
+                 'Online Optimal-K Crisp KMeans++ Window-Size 2 Alpha 0.075': {'algorithm': 1, 'alpha': 0.075,  # 11
+                                                                               'window_size': 2,
+                                                                               'gravitational_const': 1,
+                                                                               'fuzziness': 1,
+                                                                               'init_num_clusters': 2},
 
-    # Feed Data Stream to Algorithm
-    cluster_set = np.array([])
-    final_idx = int(0.05 * len(data_stream.index)) if quick_test else len(data_stream.index)
-    for i in range(0, final_idx):
+                 'Online Optimal-K Fuzzy KMeans++ Window-Size 2 Alpha 0.025': {'algorithm': 1, 'alpha': 0.025,  # 12
+                                                                               'window_size': 2,
+                                                                               'gravitational_const': 1,
+                                                                               'fuzziness': 2,
+                                                                               'init_num_clusters': 2},
+                 'Online Optimal-K Fuzzy KMeans++ Window-Size 2 Alpha 0.075': {'algorithm': 1, 'alpha': 0.075,  # 13
+                                                                               'window_size': 2,
+                                                                               'gravitational_const': 1,
+                                                                               'fuzziness': 2,
+                                                                               'init_num_clusters': 2},
 
-        # feed incoming data to algorithm
-        clustering_algorithm.feed_data(data_stream.iloc[i])
+                 'Online Optimal-K Crisp KMeans++ Low-Gravity': {'algorithm': 1, 'alpha': 0.5, 'window_size': 3,
+                                                                 'gravitational_const': 0.5, 'fuzziness': 1,
+                                                                 'init_num_clusters': 2},  # 14
+                 'Online Optimal-K Crisp KMeans++ High-Gravity': {'algorithm': 1, 'alpha': 0.1, 'window_size': 3,  # 15
+                                                                  'gravitational_const': 2, 'fuzziness': 1,
+                                                                  'init_num_clusters': 2}
+                 }
 
-        # fetch output cluster and processing metrics from algorithm
-        cluster_set, running_time, num_iterations, sse = clustering_algorithm.update_clusters(i)
+    get_results_at_index = True
+    calculate_results = False
 
-        # update results of this test
-        clustering_results.update(convergence_count=i, num_clusters=cluster_set.num_clusters,
-                                  centroids=cluster_set.centroids, running_time=running_time,
-                                  num_iterations=num_iterations, online_sses=cluster_set.sses, masses=cluster_set.masses,
-                                  counts=cluster_set.counts,
-                                  centre_of_masses=cluster_set.centre_of_masses)
+    scenario_indices = range(4, 16)
+    new_scenarios = {}
+    for scenario_index in scenario_indices:
+        key = list(scenarios)[scenario_index]
+        new_scenarios[key] = scenarios[key]
+    scenarios = new_scenarios
 
-    # Finalise Results
-    clustering_results.finalise(test_name, cluster_set)
+    if get_results_at_index:
+        # given the test name, customer ids and an index of the data stream, export the plots and final results at this
+        # index
 
-    # Plot Results and Save to File with description of parameters
-    clustering_results.plot_cluster_evolution()
+        customer_ids = [1000, 1001, 1002]
+        final_idx = -2
+        for scenario_name, scenario_params in scenarios.items():
 
-    # Print Results and Save to File with description of parameters
-    clustering_results.results.to_csv('KMP' + '_clustering_results')
-    clustering_results.clusters.to_csv('KMP' + '_clusters')
+            # initialise the Clustering Results object
+            clustering_results = ClusteringResults(scenario_name)
+
+            # fetch the input params
+            input_params = clustering_results.input_params.loc[(clustering_results.input_params.test_name == scenario_name)].iloc[0]
+
+            # initialise Data Stream Reader
+            data_stream_reader = InputDataReader()
+            # read input data stream from csv file
+            # if reading load_pattern data, where features correspond to half-hour time intervals
+            if input_params.data_type == 0:
+                data_stream_reader.read_load_pattern_data(input_params.csv_path)
+                # features = [Feature('Energy_' + str(hour)) for hour in np.arange(0, 24, 0.5)]
+            # elif reading load time-series data, where features correspond to energy and timestamp components
+            elif input_params.data_type == 1:
+                data_stream_reader.read_load_time_series_data(input_params.csv_path, customer_ids)
+
+            # initialise Feature objects
+            input_params.feature_names = ['Hour', 'Energy']
+            features = [Feature(fn) for fn in input_params.feature_names]
+
+            # for each customer
+            for cid in customer_ids:
+                clustering_results.reset()
+
+                # fetch the data up to this index for this customer
+                data_stream = data_stream_reader.data.iloc[0:final_idx]
+
+                # plot results and output csv results at this index
+                clustering_results.finalise_at_index(cid, data_stream, features)
+                clustering_results.plot_cluster_evolution(1, cid, show=False, last_fig_only=True)
+                clustering_results.plot_cluster_characteristic_evolution(1, cid, show=False, last_fig_only=True)
+
+    elif calculate_results:
+
+        # multiprocessing pool
+        pool = mp.Pool(mp.cpu_count())
+
+        for scenario_name, scenario_params in scenarios.items():
+
+            # shelf[scenario_name] = {}
+
+            print(f"\nStarting scenario {scenario_name}.")
+            print(f"\nReading input parameters.")
+
+            # initialise Input Parameter Reader object
+            input_parameter_reader = InputParameterReader()
+
+            # read input parameters from input_params.ini
+            input_parameter_reader.read_input_parameters()
+
+            input_params = input_parameter_reader.input_params
+
+            # update parameters depending on scenario
+            input_params.update([('test_name', scenario_name)])
+            input_params.update([(k, v) for k, v in scenario_params.items()])
+
+            data_type = input_params['data_type']
+            batch_size = input_params['batch_size']
+            init_batch_size = input_params['init_batch_size']
+            init_num_clusters = input_params['init_num_clusters']
+            tol = input_params['tol']
+            max_iter = input_params['max_iter']
+            gravitational_const = input_params['gravitational_const']
+            time_decay_const = input_params['time_decay_const']
+            fuzziness = input_params['fuzziness']
+            alpha = input_params['alpha']
+            algorithm = input_params['algorithm']
+            num_samples_to_run = input_params['num_samples_to_run']
+            window_size = input_params['window_size']
+            test_name = input_params['test_name']
+            plotting_data_step = input_params['plotting_data_step']
+            csv_path = input_params['csv_path']
+            customer_ids = input_params['customer_ids']
+            feature_names = input_params['feature_names']
+
+            print("\nInput parameters read.")
+
+            print(f"\nCreating results directories.")
+
+            # if this test run results folder has not yet been created, create it
+            if not os.path.exists(f"./results/{test_name}"):
+                os.mkdir(f"./results/{test_name}")
+
+            # if plots folders for the given customers have not yet been created, create them
+            for cid in customer_ids:
+
+                if not os.path.exists(f"./results/{test_name}/{cid}"):
+                    os.mkdir(f"./results/{test_name}/{cid}")
+
+            print(f"\nResults directories created.")
+
+            print(f"\nReading data stream.")
+
+            # initialise Data Stream Reader
+            data_stream_reader = InputDataReader()
+
+            # read input data stream from csv file
+            # if reading load_pattern data, where features correspond to half-hour time intervals
+            if data_type == 0:
+                data_stream_reader.read_load_pattern_data(csv_path)
+                # features = [Feature('Energy_' + str(hour)) for hour in np.arange(0, 24, 0.5)]
+            # elif reading load time-series data, where features correspond to energy and timestamp components
+            elif data_type == 1:
+                data_stream_reader.read_load_time_series_data(csv_path, customer_ids)
+
+            print(f"\nData stream read.")
+
+            # initialise Feature objects
+            features = [Feature(fn) for fn in feature_names]
+
+            # initialise the Clustering Results object
+            clustering_results = ClusteringResults(test_name)
+
+            # if performing an Online Periodic K-Means++ clustering
+            if algorithm == 0:
+                clustering_algorithm_class = OnlineKMeansPlus
+                clustering_algorithm_args = {'features': features, 'init_num_clusters': init_num_clusters,
+                                             'batch_size': batch_size, 'init_batch_size': init_batch_size,
+                                             'max_iter': max_iter, 'tol': tol, 'fuzziness': fuzziness}
+            # else if performing an Online Optimal KMeans++ clustering
+            elif algorithm == 1:
+                clustering_algorithm_class = OnlineOptimalKMeansPlus
+                clustering_algorithm_args = {'features': features, 'init_num_clusters': init_num_clusters,
+                                             'batch_size': batch_size, 'init_batch_size': init_batch_size,
+                                             'gravitational_const': gravitational_const,
+                                             'time_decay_const': time_decay_const, 'fuzziness': fuzziness,
+                                             'alpha': alpha, 'max_iter': max_iter, 'tol': tol, 'window_size': window_size}
+
+            # else if performing an Offline Optimal KMeans++ clustering
+            elif algorithm == 2:
+                clustering_algorithm_class = OfflineOptimalKMeansPlus
+                clustering_algorithm_args = {'features': features, 'init_num_clusters': init_num_clusters,
+                                             'batch_size': batch_size, 'init_batch_size': init_batch_size,
+                                             'gravitational_const': gravitational_const,
+                                             'time_decay_const': time_decay_const,
+                                             'fuzziness': fuzziness, 'alpha': alpha, 'max_iter': max_iter, 'tol': tol}
+
+            for cid in customer_ids:
+
+                print(f"\nStarting customer {cid}.")
+
+                total_running_time = datetime.now()
+
+                # reset evolutionary results
+                clustering_results.reset()
+
+                # get data from chosen customers and features
+                data_stream = data_stream_reader.data.loc[data_stream_reader.data.CustomerID == cid, feature_names]
+
+                # re-initialise clustering algorithm object
+                clustering_algorithm = clustering_algorithm_class(**clustering_algorithm_args)
+
+                # choose the last index of the data to read to. Results will be formulated based on the clustering solution
+                # at this index
+                final_idx = np.min([num_samples_to_run, len(data_stream.index)]) if type(num_samples_to_run) is int \
+                    else len(data_stream.index)
+
+                # if performing an online algorithm
+                is_online_algorithm = True if algorithm in [0, 1] else False
+                if is_online_algorithm:
+
+                    cluster_set = None
+                    for i in range(final_idx):
+                        print(f"\nSample count {i}")
+
+                        # feed incoming data to algorithm object one sample at a time
+                        clustering_algorithm.feed_data(data_stream.iloc[i].values)
+
+                        # fetch resulting cluster set object and convergence metrics
+                        cluster_set, running_time, num_iterations, sse, compactness, dbi \
+                            = clustering_algorithm.update_clusters(i, pool)
+
+                        # update results of this test
+                        clustering_results.update(sample_count=i, num_clusters=cluster_set.num_clusters,
+                                                  centroids=cluster_set.centroids, running_time=running_time,
+                                                  num_iterations=num_iterations, online_sse=sse,
+                                                  online_compactness=compactness, online_dbi=dbi,
+                                                  masses=cluster_set.masses,
+                                                  counts=cluster_set.counts,
+                                                  probabilistic_counts=cluster_set.probabilistic_counts,
+                                                  centre_of_masses=cluster_set.centre_of_masses,
+                                                  alpha=clustering_algorithm.alpha,
+                                                  gravitational_const=clustering_algorithm.gravitational_const)
+
+                    # perform final crisp clustering
+                    # TODO this should only merge close clusters. Generate bootstrapped datasets around clusters
+                    #  or just merge significantly close clusters...should already have happened!
+                    final_clustering_algorithm_class = OfflineOptimalKMeansPlus
+                    final_clustering_algorithm_args = {'features': features, 'init_num_clusters': init_num_clusters,
+                                                       'batch_size': batch_size, 'init_batch_size': init_batch_size,
+                                                       'gravitational_const': gravitational_const,
+                                                       'time_decay_const': time_decay_const,
+                                                       'fuzziness': 1, 'alpha': alpha, 'max_iter': max_iter, 'tol': tol,
+                                                       'cluster_set': cluster_set}
+                    final_clustering_algorithm = final_clustering_algorithm_class(**final_clustering_algorithm_args)
+                    # n_samples_per_cluster = np.asarray(cluster_set.masses, dtype='int')
+                    # bootstrapped_data, _ = synthetic_dataset, _ = make_blobs(n_samples=n_samples_per_cluster,
+                    #                                                          n_features=len(features),
+                    #                                                          centers=cluster_set.centroids, shuffle=False)
+                    final_clustering_algorithm.feed_data(cluster_set.centroids, cluster_set.masses)
+                    cluster_set, running_time, num_iterations, sse, compactness, dbi \
+                        = final_clustering_algorithm.update_clusters(pool)
+                    clustering_results.update(sample_count=i, num_clusters=cluster_set.num_clusters,
+                                              centroids=cluster_set.centroids, running_time=running_time,
+                                              num_iterations=num_iterations, online_sse=sse,
+                                              online_compactness=compactness, online_dbi=dbi,
+                                              masses=cluster_set.masses,
+                                              counts=cluster_set.counts,
+                                              probabilistic_counts=cluster_set.probabilistic_counts,
+                                              centre_of_masses=cluster_set.centre_of_masses,
+                                              alpha=clustering_algorithm.alpha,
+                                              gravitational_const=clustering_algorithm.gravitational_const)
+
+                    # clustering_algorithm.close_pool()
+
+                # else if performing an offline algorithm
+                else:
+
+                    # feed data to algorithm object
+                    # data = data_stream.loc[:final_idx, [feat.name for feat in features]].dropna().values
+                    print(f"\nFeeding data stream.")
+                    clustering_algorithm.feed_data(data_stream.iloc[0:final_idx].values, np.ones(final_idx))
+
+                    # fetch resulting cluster set object and convergence metrics
+                    print(f"\nFitting clusters.")
+                    cluster_set, running_time, num_iterations, sse, compactness, dbi \
+                        = clustering_algorithm.update_clusters(pool)
+
+                    # update results of this test
+                    print(f"\nUpdating results.")
+                    clustering_results.update(sample_count=0, num_clusters=cluster_set.num_clusters,
+                                              centroids=cluster_set.centroids, running_time=running_time,
+                                              num_iterations=num_iterations, online_sse=sse,
+                                              online_compactness=compactness, online_dbi=dbi,
+                                              masses=cluster_set.masses,
+                                              counts=cluster_set.counts,
+                                              probabilistic_counts=cluster_set.probabilistic_counts,
+                                              centre_of_masses=cluster_set.centre_of_masses,
+                                              alpha=clustering_algorithm.alpha,
+                                              gravitational_const=clustering_algorithm.gravitational_const)
+
+                total_running_time = (datetime.now() - total_running_time).total_seconds()
+
+                # Calculate resulting metrics and Save to File with description of parameters
+                print("\nClustering finished. Exporting .csv files.")
+                clustering_results.finalise(cid, input_params, features, data_stream.iloc[0:final_idx], cluster_set,
+                                            total_running_time)
+
+                # Plot Results and Save to File with description of parameters
+                print("\nResults exported. Exporting plots.")
+                clustering_results.plot_cluster_evolution(plotting_data_step, cid, show=False,
+                                                          last_fig_only=False if is_online_algorithm else True)
+                clustering_results.plot_cluster_characteristic_evolution(plotting_data_step, cid, show=False,
+                                                                         last_fig_only=False if is_online_algorithm else True)
+                clustering_results.plot_parameter_evolution(plotting_data_step, cid, show=False)
+
+                # shelf[scenario_name][cid] = clustering_results
+
+                print("\nPlots exported. Clustering run finished.")
+
+        pool.close()
+
+        # shelf.close()
 
 
 if __name__ == '__main__':
