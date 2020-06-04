@@ -1,5 +1,6 @@
 import configparser
 import os
+import numpy as np
 
 class InputParameterReader:
     """
@@ -19,7 +20,6 @@ class InputParameterReader:
         # select max iterations
         self.max_iter = None
         self.fuzziness = None
-        self.gravitational_const = None
         self.time_decay_const = None
         self.algorithm = None
         self.num_samples_to_run = None
@@ -87,15 +87,13 @@ class InputParameterReader:
             print(e)
 
         try:
-            self.gravitational_const = float(config['PARAMETERS']['gravitational_const'])  # * 10**(-11)
-            self.input_params['gravitational_const'] = self.gravitational_const
-            if self.gravitational_const < 0:
-                raise ValueError('gravitational_const input parameter must be greater than or equal to 0.')
-        except Exception as e:
-            print(e)
+            self.time_decay_const = config['PARAMETERS']['time_decay_const']  # * 10**(-11)
+            if self.time_decay_const != 'inf':
+                self.time_decay_const = int(self.time_decay_const)
 
-        try:
-            self.time_decay_const = int(config['PARAMETERS']['time_decay_const'])  # * 10**(-11)
+            else:
+                self.time_decay_const = np.inf
+
             self.input_params['time_decay_const'] = self.time_decay_const
             if self.time_decay_const <= 0:
                 raise ValueError('time_decay_const input parameter must be greater than 0.')

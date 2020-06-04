@@ -122,7 +122,7 @@ class FuzzyKMeansPlus:
             far_from_centers = distances.argsort()[::-1]
 
             # loop through clusters which are too far from all data points
-            for d, cluster_id in enumerate(empty_clusters):
+            for d, cluster_id in enumerate(empty_clusters[0:len(far_from_centers)]):
                 # two relocated clusters could be close to each other
 
                 # set the centroid of this empty cluster to the datapoint furthest from its closest centroid

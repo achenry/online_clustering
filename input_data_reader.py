@@ -25,7 +25,8 @@ class InputDataReader:
         if os.path.exists('pivoted_loaddata.csv'):
             reduced_df = pd.read_csv('pivoted_loaddata.csv')
             # check if it contains the customer ids we need, if not read the ids needed
-            if not reduced_df.CustomerID.isin(customer_ids).all():
+
+            if not all([cid in reduced_df.CustomerID for cid in customer_ids]):
                 reread_csv = True
         else:
             reread_csv = True

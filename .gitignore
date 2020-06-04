@@ -10,3 +10,10 @@ KMP_clustering_results
 simulation.py
 clustering_plot.py
 case_studies.py
+/results
+OldCode/
+cs_export_results/
+ie_export_results/
+ie_results/
+cs_results/
+params_25726.png params_288.png
