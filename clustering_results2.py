@@ -156,10 +156,12 @@ class ClusteringResults:
                                   'zeroline': False,
                                   'showticklabels': True,
                                   'tick0': 0,
-                                  'dtick': data_step},
+                                  'dtick': data_step,
+                                  'title': 'Convergence Count'},
                            yaxis={'showgrid': False,
                                   'zeroline': False,
-                                  'showticklabels': True},
+                                  'showticklabels': True,
+                                  'title': 'No. Clusters'},
                            hovermode='closest'
                            )
 
@@ -211,8 +213,9 @@ class ClusteringResults:
                                   'zeroline': False,
                                   'showticklabels': True,
                                   'tickmode': 'linear',
-                                  'tick0':0,
-                                  'dtick':1},
+                                  'tick0': 0,
+                                  'dtick': 1,
+                                  'title': 'Cluster No.'},
                            yaxis={'showgrid': False,
                                   'zeroline': False,
                                   'showticklabels': True,
@@ -242,7 +245,7 @@ class ClusteringResults:
                 # cluster masses
                 go.Bar(visible=False,
                        x=np.arange(-0.2, self.num_clusters[idx], 1),
-                       y=self.masses[idx],
+                       y=self.masses[idx] if not last_fig_only else self.clusters.Mass,
                        width=0.4,
                        name='Mass',
                        showlegend=True
@@ -253,7 +256,7 @@ class ClusteringResults:
                 # cluster counts
                 go.Bar(visible=False,
                        x=np.arange(0.2, self.num_clusters[idx], 1),
-                       y=self.inertias[idx],
+                       y=self.inertias[idx] if not last_fig_only else self.clusters.Inertia,
                        name='Inertia',
                        width=0.4,
                        showlegend=True,
@@ -337,21 +340,18 @@ class ClusteringResults:
 
         num_traces_per_step = 3
 
-        # check if the centre-of-masses exist
-        com_exists = not np.any(np.isnan(self.st_centroids[-1][-1]))
-        # if not exclude the coms from the traces
-        if not com_exists:
-            num_traces_per_step -= 1
-
         # Create figure
         layout = go.Layout(xaxis={'showgrid': False,
                                   'zeroline': False,
                                   'showticklabels': True,
-                                  'tick0': 0,
-                                  'dtick': data_step},
+                                   'title': 'Hour',
+                                  'tickmode':'array',
+                                  'tickvals':np.arange(1, 24,1),
+        },
                            yaxis={'showgrid': False,
                                   'zeroline': False,
-                                  'showticklabels': True},
+                                  'showticklabels': True,
+                                  'title': 'Energy'},
                            hovermode='closest'
                            )
 
@@ -381,21 +381,20 @@ class ClusteringResults:
                            )
             )
 
-            if com_exists:
-                fig.add_trace(
-                    #  cluster centre-of-masses
-                    go.Scatter(visible=False,
-                               x=[com[0] for com in self.st_centroids[idx]],
-                               y=[com[1] for com in self.st_centroids[idx]],
-                               name='Centre Of Mass',
-                               mode='markers',
-                               marker=go.scatter.Marker(symbol='circle', size=20),
-                               showlegend=False,
-                               text=[(f"Cluster No. {c}."
-                                      f"Mass = {self.masses[idx][c]}."
-                                      ) for c in range(self.num_clusters[idx])]
-                               )
-                )
+            fig.add_trace(
+                #  cluster centre-of-masses
+                go.Scatter(visible=False,
+                           x=[stc[0] for stc in self.st_centroids[idx]],
+                           y=[stc[1] for stc in self.st_centroids[idx]],
+                           name='Short-Term Centroid',
+                           mode='markers',
+                           marker=go.scatter.Marker(symbol='circle', size=20),
+                           showlegend=False,
+                           text=[(f"Cluster No. {c}."
+                                  f"Mass = {self.masses[idx][c]}."
+                                  ) for c in range(self.num_clusters[idx])]
+                           )
+            )
 
             # make bubble chart of invisible data stream, adding cluster information under color.
             fig.add_trace(
@@ -483,11 +482,11 @@ class ClusteringResults:
         # fetch the centroids at this index
         df = self.evolutionary_results.loc[
             (self.evolutionary_results.CustomerID == customer_id) &
-            (self.evolutionary_results.ConvergenceCount == index), ['NumberClusters', 'Centroids', 'CentreOfMasses',
+            (self.evolutionary_results.ConvergenceCount == index), ['NumberClusters', 'Centroids', 'ShortTermCentroids',
                                                                     'Masses', 'Inertias']]
         num_clusters = df.NumberClusters.iloc[0]
         results = pd.DataFrame()
-        for col, items in df[['Centroids', 'CentreOfMasses']].iteritems():
+        for col, items in df[['Centroids', 'ShortTermCentroids']].iteritems():
             res = items.iloc[0].split(']')
             list_vals = []
             for c in range(num_clusters):
@@ -501,7 +500,7 @@ class ClusteringResults:
             results[col] = [float(g) for g in regex]
 
         self.centroids = [results['Centroids'].values]
-        self.st_centroids = [results['CentreOfMasses'].values]
+        self.st_centroids = [results['ShortTermCentroids'].values]
         self.num_clusters = [num_clusters]
         self.masses = [results['Masses'].values]
         self.inertias = [results['Inertias'].values]
@@ -513,10 +512,11 @@ class ClusteringResults:
         new_cluster_df['ClusterNumber'] = np.arange(num_clusters)
 
         # calculate actual final count, standard deviation, compactness, inertia, dbi metrics
-        std_dev, inertia, count = self.calc_cluster_metrics(new_cluster_df)
+        std_dev, inertia, count, mass = self.calc_cluster_metrics(new_cluster_df)
         new_cluster_df['Standard Deviation'] = std_dev.tolist()
         new_cluster_df['Inertia'] = inertia
         new_cluster_df['Count'] = count
+        new_cluster_df['Mass'] = mass
         new_cluster_df['Compactness'] = self.calc_compactness(new_cluster_df)
         new_cluster_df['DBI'] = self.calc_dbi(new_cluster_df)
         new_cluster_df['CustomerID'] = customer_id
@@ -551,6 +551,7 @@ class ClusteringResults:
         input_params['feature_names'] = [input_params['feature_names']]
         self.batch_size = input_params['batch_size']
         new_input_params_df = pd.DataFrame(input_params, index=[0])
+        self.input_params = new_input_params_df
         new_input_params_df = self.input_params.append(new_input_params_df)
         new_input_params_df.to_csv(f'./results/{self.test_name}/input_params.csv', index=False)
 
@@ -582,7 +583,7 @@ class ClusteringResults:
         new_evolutionary_results_df['NumberIterations'] = self.num_iterations
         new_evolutionary_results_df['CustomerID'] = customer_id
         new_evolutionary_results_df['Centroids'] = self.centroids
-        new_evolutionary_results_df['CentreOfMasses'] = self.st_centroids
+        new_evolutionary_results_df['ShortTermCentroids'] = self.st_centroids
         new_evolutionary_results_df['Masses'] = self.masses
         new_evolutionary_results_df['Inertia'] = self.inertias
 
@@ -625,6 +626,8 @@ class ClusteringResults:
         :return inertia: sum-squared-error of each cluster
         :return count: count of each cluster
         """
+
+        fuzziness = self.input_params.loc[0, 'fuzziness']
         n_clusters = len(cluster_df.index)
         centroids = np.vstack(cluster_df.Centroid.values)
         data = np.vstack(self.data.values)
@@ -636,6 +639,28 @@ class ClusteringResults:
         count = np.zeros(n_clusters)
         for k in unique_clusters:
             count[k] = k
+
+        # for hard clustering, where each row of fuzzy_labels (for each data point) will have a single nonzero value
+        # of 1 corresponding to the cluster to which that data point certainly belongs
+        if fuzziness == 1:
+            D = np.zeros((n_samples, n_clusters))
+            for data_point_idx, closest_cluster_idx in enumerate(closest_cluster_indices):
+                D[data_point_idx, closest_cluster_idx] = 1
+        # for fuzzy clustering, the values over each row of fuzzy_labels will sum to 1
+        else:
+            with np.errstate(divide='ignore'):
+                D = 1.0 / cluster_distances
+
+            x_eq_centroid_indices = np.argwhere(D == np.inf)
+            D[x_eq_centroid_indices[:, 0], :] = 0
+            D[x_eq_centroid_indices[:, 0], x_eq_centroid_indices[:, 1]] = 1
+
+            D **= np.divide(1.0, (fuzziness - 1))
+            D /= np.sum(D, axis=1)[:, np.newaxis]
+
+        # n_samples * n_clusters ndarray of probability of membership of each sample to each cluster
+        fuzzy_labels = D
+        mass = np.sum(fuzzy_labels, axis=0)
 
         # calculate squared error of each cluster
         inertia = np.zeros(len(cluster_df.index))
@@ -663,7 +688,7 @@ class ClusteringResults:
             if count[k] > 1:
                 std_dev[k] = np.sqrt((1 / (count[k] - 1)) * product_sum)
 
-        return std_dev, inertia, count
+        return std_dev, inertia, count, mass
 
     def calc_compactness(self, cluster_df):
         """

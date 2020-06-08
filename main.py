@@ -20,8 +20,8 @@ def main():
     scenarios = {'Offline Optimal-K Crisp KMeans++': {'algorithm': 2, 'alpha': 0.05, 'fuzziness': 1},  # 0
                  'Offline Optimal-K Fuzzy KMeans++': {'algorithm': 2, 'alpha': 0.05, 'fuzziness': 2},  # 1
 
-                 'Online Periodic-K Crisp KMeans++': {'algorithm': 0, 'fuzziness': 1, 'init_num_clusters': 8},  # 2
-                 'Online Periodic-K Fuzzy KMeans++': {'algorithm': 0, 'fuzziness': 2, 'init_num_clusters': 8},  # 3
+                 'Online Periodic-K Crisp KMeans++': {'algorithm': 0, 'fuzziness': 1, 'init_num_clusters': 6},  # 2
+                 'Online Periodic-K Fuzzy KMeans++': {'algorithm': 0, 'fuzziness': 2, 'init_num_clusters': 6},  # 3
 
                  'Online Optimal-K Crisp KMeans++ Window-Size 2': {'algorithm': 1, 'window_size': 2, 'alpha': 0.05,  # 4
                                                                    'fuzziness': 1,

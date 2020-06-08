@@ -410,12 +410,15 @@ class ClusteringAlgorithm:
         # generate synthetic datasets based on cluster parameters (mean vector and standard deviation)
         # null std_dev results in duplicated data samples at that centroid
 
-        synthetic_dataset, _ = make_blobs(n_samples=n_samples, n_features=n_features, centers=centers,
-                                          cluster_std=std_dev, shuffle=False)
+        # mult_factor = np.max([10**(np.floor(np.log10(np.max(n_samples))) - 1), 1])
+        mult_factor = 1
+
+        synthetic_dataset, _ = make_blobs(n_samples=np.asarray(np.ceil(n_samples / mult_factor), dtype='int'),
+                                          n_features=n_features, centers=centers, cluster_std=std_dev, shuffle=False)
 
         # cluster the synthetic datasets
         synthetic_fit = self.fit(synthetic_dataset, n_clusters, init=centers)
-        synthetic_inertia = synthetic_fit.inertia_
+        synthetic_inertia = synthetic_fit.inertia_ * mult_factor
 
         return synthetic_inertia
 
@@ -932,8 +935,6 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
             # is used to reduce it to a more reasonable value
 
             # error_squared accrued by K+1 algorithm run
-            # todo this should decrease for greater number of clusters
-            #  it is increasing because it is normalised by a smaller number for c+1 than for c
             kplus_inertia = self.cluster_set[c + 1].inertia
 
             # calculate pdf of error_squared values achieved over all of these synthetic data sets
@@ -982,18 +983,22 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
 
         # generate coefficients between 0 and 1 which indicate what proportion of the metrics
         # (count, mass, fuzzy_count) of the dead cluster will be passed on to the other clusters
-        a = 1 - (live_centroid_dead_centroid_distances / np.max(live_centroid_dead_centroid_distances)) ** 2
-        with np.errstate(divide='ignore', invalid='ignore'):
-            a /= np.sum(a)
-        a[np.isnan(a)] = 1
+        # with np.errstate(divide='ignore', invalid='ignore'):
 
         # kill the outlier cluster
         new_cluster_set.kill_clusters([outlier_idx])
+
+        if cluster_set.num_clusters > 2:
+            a = 1 - (live_centroid_dead_centroid_distances / np.max(live_centroid_dead_centroid_distances)) ** 2
+            a /= np.sum(a)
+        else:
+            a = np.zeros(new_cluster_set.num_clusters)
 
         print(f"Outlier cluster killed.")
 
         # update original clusters
         for k in range(new_cluster_set.num_clusters):
+
             new_cluster_set.clusters[k].error_absolute += a[k] * cluster_set.errors_absolute[outlier_idx]
             new_cluster_set.errors_absolute[k] = new_cluster_set.clusters[k].error_absolute
 
@@ -1024,15 +1029,18 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                                                                   self.data_buf[outlier_idx, np.newaxis])
 
         # generate coefficients between 0 and 1 which indicate what proportion of the metrics
-        # (count, mass, fuzzy_count) of each old cluster will be passes on to this new cluste
-        a = ((old_centroid_new_centroid_distances / np.max(old_centroid_new_centroid_distances)) ** 2).squeeze(axis=1)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            a /= np.sum(a)
-        a[np.isnan(a)] = 1
+        # (count, mass, fuzzy_count) of each old cluster will be passes on to this new cluster
 
-        outlier_cluster.mass = np.sum((1 - a) * cluster_set.masses)
-        outlier_cluster.error_absolute = np.sum((1 - a)[:, np.newaxis] * cluster_set.errors_absolute, axis=0)
-        outlier_cluster.error_squared = np.sum((1 - a)[:, np.newaxis] * cluster_set.errors_squared, axis=0)
+        # if cluster_set.num_clusters > 1:
+        #     a = (1 - (old_centroid_new_centroid_distances / np.max(old_centroid_new_centroid_distances)) ** 2).squeeze(
+        #         axis=1)
+        #     # a *= 0.5
+        # else:
+        a = np.zeros(cluster_set.num_clusters)
+
+        outlier_cluster.mass = np.sum(a * cluster_set.masses)
+        outlier_cluster.error_absolute = np.sum(a[:, np.newaxis] * cluster_set.errors_absolute, axis=0)
+        outlier_cluster.error_squared = np.sum(a[:, np.newaxis] * cluster_set.errors_squared, axis=0)
 
         new_cluster_set.create_clusters([outlier_cluster])
 
@@ -1040,13 +1048,13 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
 
         # update original clusters
         for k in range(cluster_set.num_clusters):
-            new_cluster_set.clusters[k].mass = a[k] * cluster_set.masses[k]
+            new_cluster_set.clusters[k].mass = (1 - a[k]) * cluster_set.masses[k]
             new_cluster_set.masses[k] = new_cluster_set.clusters[k].mass
 
-            new_cluster_set.clusters[k].error_absolute = a[k] * cluster_set.errors_absolute[k]
+            new_cluster_set.clusters[k].error_absolute = (1 - a[k]) * cluster_set.errors_absolute[k]
             new_cluster_set.errors_absolute[k] = new_cluster_set.clusters[k].error_absolute
 
-            new_cluster_set.clusters[k].error_squared = a[k] * cluster_set.errors_squared[k]
+            new_cluster_set.clusters[k].error_squared = (1 - a[k]) * cluster_set.errors_squared[k]
             new_cluster_set.errors_squared[k] = new_cluster_set.clusters[k].error_squared
 
         return new_cluster_set
@@ -1304,6 +1312,10 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
             # get index of maximum distance between any two centroids
             max_inter_centroid_distance = np.max(inter_centroid_distances)
 
+            # get index of cluster with neglibible mass
+            negligible_mass_indices = np.argwhere((self.cluster_set[opt_index].masses /
+                                                  np.max(self.cluster_set[opt_index].masses))**2 < self.tol)
+
             # if the distance from the most outlying data point to its closest centroid is greater than any
             # inter-centroidal distance, then create a new cluster from the outlier
             if min_point_centroid_distance[outlier_idx] > max_inter_centroid_distance:
@@ -1317,13 +1329,11 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
 
                 re_init = True
 
-            # get index of cluster with neglibible mass
-            negligible_mass_indices = np.argwhere((self.cluster_set[opt_index].masses /
-                                                  np.max(self.cluster_set[opt_index].masses))**2 < self.tol)
+
             # if the smallest cluster mass is less than the allowed tolerance
             if len(negligible_mass_indices):
                 for negligible_mass_idx in negligible_mass_indices[0]:
-                    if self.optimal_num_clusters[0] >= 2:
+                    if self.optimal_num_clusters[0] - 1 >= 1:
                         # decrement K
                         self.optimal_num_clusters = [n - 1 for n in self.optimal_num_clusters]
 
@@ -1331,29 +1341,30 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                         for c in range(3):
                             negligible_mass_idx = np.argmin(self.cluster_set[c].masses)
                             self.cluster_set[c] = self.kill_outlier_cluster(self.cluster_set[c], negligible_mass_idx)
+                    re_init = True
 
-                        re_init = True
-
-            # get indices of centroids which have converged on eachother
+            # get indices of centroids which have converged on each other
             # get index of 0 distance between any two centroids
             inter_centroid_distances = euclidean_distances(self.cluster_set[opt_index].centroids)
             tril_indices = np.tril_indices(self.cluster_set[opt_index].num_clusters, k=-1)
             converged_indices = np.argwhere((inter_centroid_distances /
-                                            np.max(inter_centroid_distances))**2 < self.tol)
+                                             np.max(inter_centroid_distances)) ** 2 < self.tol)
             converged_indices = [idx for idx in converged_indices
                                  if idx[0] in tril_indices[0] and idx[1] in tril_indices[1] and idx[0] != idx[1]]
+
             # converged_indices = np.unique(converged_indices)
             # if the smallest cluster mass is less than the allowed tolerance
-            for converged_idx in converged_indices:
-                if self.optimal_num_clusters[0] >= 2:
-                    # decrement K
-                    self.optimal_num_clusters = [n - 1 for n in self.optimal_num_clusters]
+            if len(converged_indices):
+                for converged_idx in converged_indices:
+                    if self.optimal_num_clusters[0] - 1 >= 1:
+                        # decrement K
+                        self.optimal_num_clusters = [n - 1 for n in self.optimal_num_clusters]
 
-                    # kill or merge new clusters in each of the three parallel algorithm runs for K-1, K and K+1
-                    for c in range(3):
-                        self.cluster_set[c] = self.reduce_clusters(self.cluster_set[c], sample_count)
+                        # kill or merge new clusters in each of the three parallel algorithm runs for K-1, K and K+1
+                        for c in range(3):
+                            self.cluster_set[c] = self.reduce_clusters(self.cluster_set[c], sample_count)
 
-                    re_init = True
+                        re_init = True
 
             if not re_init:
                 print(f"No outliers have been found and there is no need to re-initialise clusters yet."

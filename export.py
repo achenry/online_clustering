@@ -4,12 +4,12 @@ import shutil
 import glob
 
 customer_ids = [1000, 1001, 1002]
-scenario_names = ['Offline Optimal-K Crisp KMeans++', 'Offline Optimal-K Fuzzy KMeans++',
-                   'Online Periodic-K Crisp KMeans++', 'Online Periodic-K Fuzzy KMeans++',
+scenario_names = ['Online Periodic-K Crisp KMeans++', 'Online Periodic-K Fuzzy KMeans++',
+                  'Offline Optimal-K Crisp KMeans++', 'Offline Optimal-K Fuzzy KMeans++',
                   'Online Optimal-K Crisp KMeans++ Window-Size 4',
                   'Online Optimal-K Fuzzy KMeans++ Window-Size 4']
 sim_types = ['ie', 'cs']
-plot_types = ['centres', 'params','metrics']
+plot_types = ['centres', 'params', 'metrics']
 
 # copy images to target folder under new name
 for sim_type in sim_types:
@@ -35,6 +35,11 @@ for sim_type in sim_types:
             algo = 'efwokk'
 
         for c in range(len(customer_ids)):
+
+            local_results_path = os.path.join(results_path, scenario_names[s], str(customer_ids[c]))
+            if not os.path.exists(local_results_path):
+                continue
+
             if 'Crisp' in scenario_names[s]:
                 fuzziness = 'crisp'
                 results_table += "Crisp " + algo.upper() + " & "
@@ -53,10 +58,6 @@ for sim_type in sim_types:
                              f" & ${final_results_row.RelativeRunningTime.iloc[0]:.3f}$\\\\\n"
             for plot_type in plot_types:
 
-                local_results_path = os.path.join(results_path, scenario_names[s], str(customer_ids[c]))
-                if not os.path.exists(local_results_path):
-                    continue
-
 
                 export_file = '_'.join([str(customer_ids[c]), fuzziness, algo, sim_type, plot_type])
 
@@ -70,7 +71,6 @@ for sim_type in sim_types:
                             evolution_file_idx.append(os.path.splitext(f)[0].split('_')[-1])
 
                 for f, i in zip(evolution_file_names, evolution_file_idx):
-                    if i == '96':
                     if plot_type != 'params':
                         file_name = '_'.join([export_file, i]) + '.png'
                     else:
