@@ -157,7 +157,7 @@ class ClusterSet:
         self.dbi = np.append(self.dbi, np.mean(self.dbis))
 
         if self.dbi.shape[0] > window_size + 2:
-            self.dbi = np.delete(self.dbi, np.arange(0, window_size + 2 - self.dbi.shape[0] - 1))
+            self.dbi = np.delete(self.dbi, np.arange(0, self.dbi.shape[0] - 1 - (window_size + 2)))
 
     def kill_clusters(self, indices):
         """
@@ -249,13 +249,17 @@ class Cluster:
         """
 
         self.error_squared += np.sum((errors ** 2) * fuzzy_weights[:, np.newaxis], axis=0)
-        self.error_squared *= tol ** (1 / time_decay_const)
+        # self.error_squared *= tol ** (1 / time_decay_const)
+        self.error_squared *= self.error_squared ** (-1 / time_decay_const)
 
         self.error_absolute += np.sum(errors * fuzzy_weights[:, np.newaxis], axis=0)
-        self.error_absolute *= tol ** (1 / time_decay_const)
+        # self.error_absolute *= tol ** (1 / time_decay_const)
+        self.error_absolute *= self.error_absolute ** (-1 / time_decay_const)
 
         self.mass += np.sum(fuzzy_weights, axis=0)
-        self.mass *= tol ** (1 / time_decay_const)
+        # self.mass *= tol ** (1 / time_decay_const)
+        self.mass *= self.mass ** (-1 / time_decay_const)
+        # TODO add to report re decay and reduced likelihood to identify outliers once daily pattern is established
 
     def update_means(self):
         """
@@ -411,9 +415,10 @@ class ClusteringAlgorithm:
         # null std_dev results in duplicated data samples at that centroid
 
         # mult_factor = np.max([10**(np.floor(np.log10(np.max(n_samples))) - 1), 1])
-        mult_factor = 1
+        mult_factor = 1.0
+        # n_samples = np.asarray(np.ceil(n_samples, dtype='int')
 
-        synthetic_dataset, _ = make_blobs(n_samples=np.asarray(np.ceil(n_samples / mult_factor), dtype='int'),
+        synthetic_dataset, _ = make_blobs(n_samples=n_samples,
                                           n_features=n_features, centers=centers, cluster_std=std_dev, shuffle=False)
 
         # cluster the synthetic datasets
@@ -516,86 +521,8 @@ class ClusteringAlgorithm:
 
         return new_centroids, new_labels, new_fuzzy_labels
 
-    def initialise_clusters(self, data, cluster_set, optimal_num_clusters, sample_count, weighted_centroids,
-                            mass_normaliser, **kwargs):
-        """
-        run the kmeans++ algorithm on the given data points and original cluster set centroids, where the centroids
-         are weighted based on their mass if weighted_centroids=True
-        :param data: batch_size or greater * num_features ndarray of buffered data points
-        :param cluster_set: input ClusterSet object which stores most recent centroids, masses, counts etc of clusters
-        :param optimal_num_clusters: number of clusters to fit for
-        :param weighted_centroids: boolean indicating whether centroids should be weighted based on their mass for
-                                   the clustering fit call
-        :param kwargs: additional arguments to pass the the clustering fit call
-        :return new_cluster_set: new ClusterSet object based centroids output from fit call, with count, mass and
-                                 fuzzy_count values carried over from equivalent old clusters
-        :return running_time: time required for fit to converge
-        :return num_iters: number of iterations required for fit to converge
-        :return error_squared: approximate total error_squared
-        """
-
-        data_points, sample_weights = self.generate_fit_input_data(data, cluster_set, weighted_centroids)
-
-        # fit the centroids and buffered data points with kmeans++ initialisation
-        running_time = datetime.now()
-        init_fit = self.fit(data_points, optimal_num_clusters, weights=sample_weights, init="kmeans++")
-
-        # get the run time, number of iterations to convergence and centroids
-        running_time = (datetime.now() - running_time).total_seconds()
-        num_iters = init_fit.n_iter_
-        new_centroids = init_fit.cluster_centers_
-
-        mapping = self.map_clusters(cluster_set.num_clusters, optimal_num_clusters, cluster_set.centroids,
-                                    new_centroids)
-
-        # re-arrange new clusters and fit results to align with old
-        new_centroids, new_labels, new_fuzzy_labels = \
-            self.sort_clusters(init_fit, mapping, len(data_points))
-
-        new_clusters = np.array([self.cluster_class(new_centroids[k], sample_count_initialised=sample_count, **kwargs)
-                                 for k in range(len(new_centroids))])
-        # reinitialise new_cluster_set based on unsorted list of clusters
-        new_cluster_set = ClusterSet(new_clusters)
-
-        # if old clusters exist
-        # carry over normalised counts, probabilist_counts and masses
-        # such that historic masses of clusters are not disregarded but also do not dominate
-        # the unit mass of new data points
-        if cluster_set.num_clusters:
-
-            # mass_normaliser = np.min(cluster_set.masses[cluster_set.masses > 0])
-            #np.min(cluster_set.masses[cluster_set.masses > 0])
-            #norm(cluster_set.masses, 2)
-
-            abs_error_normaliser = mass_normaliser
-            #l1_error = np.sum(cluster_set.errors_absolute, axis=1)
-            # zero_mask = np.ma.masked_equal(cluster_set.errors_absolute, 1)
-            # abs_error_normaliser = np.min(zero_mask, axis=0) if len(zero_mask) else 1.0
-            #np.min(cluster_set.errors_absolute[cluster_set.errors_absolute > 0], axis=0)
-            #norm(cluster_set.errors_absolute, 2, axis=0)
-            #np.max(l1_error[l1_error > 1]) if len(l1_error[l1_error > 1]) else 1
-
-            sq_error_normaliser = mass_normaliser
-            # l2_error = np.sum(cluster_set.errors_squared, axis=1)**0.5
-            # zero_mask = np.ma.masked_equal(cluster_set.errors_squared, 1)
-            # sq_error_normaliser = np.min(zero_mask, axis=0) if len(zero_mask) else 1.0
-            #np.min(cluster_set.errors_squared[cluster_set.errors_squared > 0], axis=0)
-            # #norm(cluster_set.errors_squared, 2, axis=0)
-            #np.max(l2_error[l2_error > 1]) if len(l2_error[l2_error > 1]) else 1
-
-            # loop through the new clusters and initialise their counts and masses based on the pre-existing
-            # clusters if they exist
-            for k in range(np.min([cluster_set.num_clusters, new_cluster_set.num_clusters])):
-                new_cluster_set.clusters[k].error_absolute = cluster_set.errors_absolute[k] / abs_error_normaliser
-                new_cluster_set.clusters[k].error_squared = cluster_set.errors_squared[k] / sq_error_normaliser
-                new_cluster_set.clusters[k].mass = cluster_set.masses[k] / mass_normaliser
-
-        inertia, compactness, dbi = self.post_fit_update(new_centroids, new_fuzzy_labels, new_cluster_set,
-                                                         data_points, sample_weights, False)
-
-        return new_cluster_set, running_time, num_iters, inertia, compactness, dbi
-
-    def fit_clusters(self, data, cluster_set, optimal_num_clusters, sample_count, weighted_centroids):
+    def fit_clusters(self, data, cluster_set, optimal_num_clusters, sample_count, weighted_centroids, is_refit,
+                     mass_normaliser, **kwargs):
         """
         run the kmeans fit algorithm on the given data points and original cluster set centroids, where the centroids
          are weighted based on their mass if weighted_centroids=True, given the original centroids as the initialisation
@@ -612,31 +539,61 @@ class ClusteringAlgorithm:
         :return error_squared: approximate total error_squared
         """
 
+        # if this is a reinit, normalise masses and errors before calculateing derived variables
+        # if not is_refit:
+        #
+        #     # loop through the new clusters and initialise their counts and masses based on the pre-existing
+        #     # clusters if they exist
+        #     for k in range(cluster_set.num_clusters):
+        #         cluster_set.clusters[k].error_absolute /= mass_normaliser
+        #         cluster_set.errors_absolute[k] /= mass_normaliser
+        #         cluster_set.clusters[k].error_squared /= mass_normaliser
+        #         cluster_set.errors_squared[k] /= mass_normaliser
+        #         cluster_set.clusters[k].mass /= mass_normaliser
+        #         cluster_set.masses[k] /= mass_normaliser
+
         # get data points and weights
         data_points, sample_weights = self.generate_fit_input_data(data, cluster_set, weighted_centroids)
 
         # fit the centroids and buffered data points passing the centroids as initialisation instead of using kmeans++
         running_time = datetime.now()
 
-        fit = self.fit(data_points, optimal_num_clusters, weights=sample_weights, init=cluster_set.centroids)
+        init = cluster_set.centroids if is_refit else 'kmeans++'
+
+        fit = self.fit(data_points, optimal_num_clusters, weights=sample_weights, init=init)
 
         # get the run time, number of iterations to convergence and centroids
         running_time = (datetime.now() - running_time).total_seconds()
-        num_iters = self.clustering_obj.n_iter_
+        num_iters = fit.n_iter_
         new_centroids = fit.cluster_centers_
 
         # sorting index for new_centroids
         mapping = self.map_clusters(cluster_set.num_clusters, optimal_num_clusters, cluster_set.centroids,
                                     new_centroids)
 
-        new_centroids, new_labels, new_fuzzy_labels = self.sort_clusters(fit, mapping, len(data))
+        # if doing a refit, only pass fuzzy labels from incoming data points to update
+        # if doing a reinit, pass fuzzy labels from incoming data points and existing centroids
+        n_samples = len(data) if is_refit else len(data_points)
+        new_centroids, new_labels, new_fuzzy_labels = self.sort_clusters(fit, mapping, n_samples)
+
+        if is_refit:
+            new_sample_weights = sample_weights[0:len(data)]
+        else:
+            new_sample_weights = sample_weights
+            new_clusters = np.array([self.cluster_class(new_centroids[k], sample_count_initialised=sample_count, **kwargs)
+                                     for k in range(len(new_centroids))])
+            # reinitialise cluster_set based on sorted list of clusters
+            cluster_set = ClusterSet(new_clusters)
 
         inertia, compactness, dbi = self.post_fit_update(new_centroids, new_fuzzy_labels,
-                                                         cluster_set, data, sample_weights[0:len(data)], True)
+                                                         cluster_set, data, new_sample_weights,
+                                                         is_refit=is_refit,
+                                                         mass_normaliser=mass_normaliser)
 
         return cluster_set, running_time, num_iters, inertia, compactness, dbi
 
-    def post_fit_update(self, new_centroids, new_fuzzy_labels, cluster_set, data, sample_weights, fit_clusters):
+    def post_fit_update(self, new_centroids, new_fuzzy_labels, cluster_set, data, sample_weights, is_refit,
+                        mass_normaliser):
         """
         This method is called after incoming data points have been fit to update all cluster and cluster set attributes
         :param new_centroids: n_clusters * n_features ndarray of new centroid coordinates, indices aligned with old
@@ -654,9 +611,7 @@ class ClusteringAlgorithm:
 
         new_fuzzy_weights = sample_weights[:, np.newaxis] * (new_fuzzy_labels ** self.fuzziness)
 
-        # loop through all new data points
-        #for d in range(len(data)):
-        # loop through all existing clusters
+        # loop through all existing clusters and increment masses and errors
         for k in range(len(new_centroids)):
 
             # update error_absolute, error_squared and mass weighted by fuzzy weight
@@ -664,15 +619,12 @@ class ClusteringAlgorithm:
                                                   errors=np.abs(data - new_centroids[k]),
                                                   fuzzy_weights=new_fuzzy_weights[:, k])
 
-            # update compactness and variance
-            cluster_set.clusters[k].update_means()
-
             # update total fuzzy weight added since last init to track short term trends
             fuzzy_weights_sum = np.sum(new_fuzzy_weights[:, k])
             cluster_set.clusters[k].st_mass += fuzzy_weights_sum
 
-            # update long-term centroid and short term centroid
-            if fit_clusters:
+            # if this is a refit update long-term centroid and short term centroid
+            if is_refit:
 
                 # updated based on existing centroids and incoming data points
                 cluster_set.clusters[k].centroid = new_centroids[k]
@@ -683,7 +635,18 @@ class ClusteringAlgorithm:
                         np.sum((data * new_fuzzy_weights[:, k])
                                 - (cluster_set.clusters[k].st_centroid * fuzzy_weights_sum), axis=0) \
                         / cluster_set.clusters[k].st_mass
+            # if this is a reinit, normalise masses and errors before calculating derived variables
+            else:
+                pass
+                # cluster_set.clusters[k].error_absolute /= mass_normaliser
+                # cluster_set.errors_absolute[k] /= mass_normaliser
+                # cluster_set.clusters[k].error_squared /= mass_normaliser
+                # cluster_set.errors_squared[k] /= mass_normaliser
+                # cluster_set.clusters[k].mass /= mass_normaliser
+                # cluster_set.masses[k] /= mass_normaliser
 
+            # update compactness and variance
+            cluster_set.clusters[k].update_means()
 
         # update ClusterSet metrics and DBI, compactness and variance weighted by fuzzy weight
         cluster_set.update(window_size=self.window_size)
@@ -807,34 +770,30 @@ class OnlineKMeansPlus(ClusteringAlgorithm):
             # with equal sample weights
             re_init = True
 
+        # re_init = True
         # else if cluster centres must not yet be (re)initialised and sufficient data points are available
         # feed data to stream to update clusters
         elif self.cluster_set.num_clusters > 0 and len(self.data_buf) >= self.batch_size:
             print(f"There is no need to re-initialise clusters yet. Re-fit clusters.")
             re_fit = True
 
-        # get the smallest nonzero mass
-        mass_normaliser = np.min(self.cluster_set.masses[self.cluster_set.masses > 1.0]) \
-            if len(self.cluster_set.masses[self.cluster_set.masses > 1.0]) else 1.0
-
         # re-initialise clusters if necessary
-        if re_init:
+        # if re_fit:
+        mass_normaliser = None
+        # elif re_init:
+            # get the smallest nonzero mass
+            # mass_normaliser = np.min(self.cluster_set.masses[self.cluster_set.masses > 1.0]) \
+            #     if len(self.cluster_set.masses[self.cluster_set.masses > 1.0]) else 1.0
+
+        if re_fit or re_init:
             self.cluster_set, running_time, num_iters, inertia, compactness, dbi = \
-                self.initialise_clusters(self.data_buf, self.cluster_set, self.optimal_num_clusters,
-                                         mass_normaliser=mass_normaliser, sample_count=sample_count,
-                                         weighted_centroids=False)
-            self.n_samples_since_last_init = len(self.data_buf)
+                self.fit_clusters(self.data_buf, self.cluster_set, self.optimal_num_clusters, sample_count=sample_count,
+                                  weighted_centroids=False, is_refit=re_fit, mass_normaliser=mass_normaliser)
 
-            # flush old data from memory
-            self.flush_data()
-
-        # otherwise re-fit clusters if possible
-        elif re_fit:
-
-            self.cluster_set, running_time, num_iters, inertia, compactness, dbi = \
-                self.fit_clusters(self.data_buf, self.cluster_set, self.optimal_num_clusters,
-                                  sample_count=sample_count, weighted_centroids=False)
-            self.n_samples_since_last_init += len(self.data_buf)
+            if re_fit:
+                self.n_samples_since_last_init += len(self.data_buf)
+            else:
+                self.n_samples_since_last_init = len(self.data_buf)
 
             # flush old data from memory
             self.flush_data()
@@ -882,6 +841,8 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
         # re-initialised
         self.window_size = window_size
 
+        self.init_num_clusters = init_num_clusters
+
     def calc_opt_num_clusters(self, pool):
         """
         given the cluster parameters of datasets clustered into K-1, K and K+1 clusters,
@@ -923,7 +884,7 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
 
             # data samples assigned to each clusters
             n_samples_per_cluster = np.asarray(np.ceil(self.cluster_set[c].masses), dtype='int')
-
+            # todo is inertia based on high masses. synthetic inertias are too low, is variance normalised
             synthetic_inertias = pool.starmap(calc_synthetic_inertia,
                                               [(self, n_samples_per_cluster, n_features, k_n_clusters, k_centroids,
                                                 k_std_dev)
@@ -1025,8 +986,8 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                                              time_decay_const=self.time_decay_const)
 
         # calculate euclidean distances between all centroids and the outlier centroid
-        old_centroid_new_centroid_distances = euclidean_distances(cluster_set.centroids,
-                                                                  self.data_buf[outlier_idx, np.newaxis])
+        # old_centroid_new_centroid_distances = euclidean_distances(cluster_set.centroids,
+        #                                                           self.data_buf[outlier_idx, np.newaxis])
 
         # generate coefficients between 0 and 1 which indicate what proportion of the metrics
         # (count, mass, fuzzy_count) of each old cluster will be passes on to this new cluster
@@ -1068,10 +1029,6 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
 
         # copy original cluster_set
         new_cluster_set = deepcopy(cluster_set)
-
-        # for no gravitational effect, store the index of the sample closest to the split cluster centroid, as the
-        # second centroid
-        close_point_idx = None
 
         # if self.gravitational_const:
         # calculate euclidean distances between all centroids and st_centroids
@@ -1224,8 +1181,9 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
         # n_samples_since_last_init is used to generate bootstrapped data sets which are clustered for K-1, K and K+1
         # values, so it must be at least as great as the last element of self.optimal_num_clusters (K+1)
 
-        elif self.n_samples_since_last_init > self.window_size + diff_order \
-                and np.all(np.diff(self.cluster_set[opt_index].dbi, n=diff_order)[-self.window_size:] > 0):
+        elif self.cluster_set[opt_index].num_clusters and \
+                len(self.cluster_set[opt_index].dbi) >= self.window_size + 2 and \
+                np.all(np.diff(self.cluster_set[opt_index].dbi, n=diff_order)[-self.window_size:] > 0):
 
             # if self.n_samples_since_last_init >= self.init_batch_size:
             #     print(f"Number of samples since the last initialisation has exceeded initial batch size parameter"
@@ -1240,8 +1198,8 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
             # split the c
             # luster with the highest centroid, centre-of-mass difference and re-initialise based
             # on these centroids by KMeans++
-
-            if new_optimal_num_clusters >= 2:
+            # min num clusters should be user input parameter
+            if new_optimal_num_clusters >= self.init_num_clusters:
                 old_optimal_num_clusters = self.optimal_num_clusters[opt_index]
 
                 # if the optimal number of clusters has increased by 1, expand clusters and re-initialise the clusters
@@ -1258,8 +1216,6 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                     for c in range(3):
                         self.cluster_set[c] = self.split_cluster(cluster_set=self.cluster_set[c])
 
-                    re_init = True
-
                 # else if the optimal number of clusters has decreased by 1, reduce clusters and
                 # re-initialise the clusters
                 elif new_optimal_num_clusters < old_optimal_num_clusters:
@@ -1274,13 +1230,11 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                           f"Reduce clusters by merging, then re-initialise clusters.")
                     for c in range(3):
                         self.cluster_set[c] = self.reduce_clusters(self.cluster_set[c], sample_count)
-                    re_init = True
 
                 # else if the optimal number of clusters has not changed, re-fit the clusters
                 elif new_optimal_num_clusters == old_optimal_num_clusters:
                     print(f"New optimal number of clusters has not changed."
                           f" Re-initialise clusters.")
-                    re_init = True
 
                 # update optimal num clusters list to reflect what increases/decreases in cluster number could actually
                 # be executed in the code reduce/split_cluster functions
@@ -1288,6 +1242,9 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                 self.optimal_num_clusters = [new_optimal_num_clusters - 1,
                                              new_optimal_num_clusters,
                                              new_optimal_num_clusters + 1]
+
+
+            re_init = True
 
         # else if cluster centres have already been initialised for the first time,
         # must not yet be (re)initialised, and sufficient data points are available,
@@ -1312,7 +1269,7 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
             # get index of maximum distance between any two centroids
             max_inter_centroid_distance = np.max(inter_centroid_distances)
 
-            # get index of cluster with neglibible mass
+            # get index of cluster with neglibible mass TODO
             negligible_mass_indices = np.argwhere((self.cluster_set[opt_index].masses /
                                                   np.max(self.cluster_set[opt_index].masses))**2 < self.tol)
 
@@ -1327,13 +1284,14 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                 for c in range(3):
                     self.cluster_set[c] = self.create_outlier_cluster(self.cluster_set[c], outlier_idx)
 
-                re_init = True
+                # re_init = True
 
 
             # if the smallest cluster mass is less than the allowed tolerance
             if len(negligible_mass_indices):
                 for negligible_mass_idx in negligible_mass_indices[0]:
-                    if self.optimal_num_clusters[0] - 1 >= 1:
+                    # TODO turn num_synthetic_datasets into user_given parameter
+                    if self.optimal_num_clusters[opt_index] - 1 >= self.init_num_clusters:
                         # decrement K
                         self.optimal_num_clusters = [n - 1 for n in self.optimal_num_clusters]
 
@@ -1341,7 +1299,7 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                         for c in range(3):
                             negligible_mass_idx = np.argmin(self.cluster_set[c].masses)
                             self.cluster_set[c] = self.kill_outlier_cluster(self.cluster_set[c], negligible_mass_idx)
-                    re_init = True
+                    # re_init = True
 
             # get indices of centroids which have converged on each other
             # get index of 0 distance between any two centroids
@@ -1356,7 +1314,7 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
             # if the smallest cluster mass is less than the allowed tolerance
             if len(converged_indices):
                 for converged_idx in converged_indices:
-                    if self.optimal_num_clusters[0] - 1 >= 1:
+                    if self.optimal_num_clusters[opt_index] - 1 >= self.init_num_clusters:
                         # decrement K
                         self.optimal_num_clusters = [n - 1 for n in self.optimal_num_clusters]
 
@@ -1364,7 +1322,7 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                         for c in range(3):
                             self.cluster_set[c] = self.reduce_clusters(self.cluster_set[c], sample_count)
 
-                        re_init = True
+                # re_init = True
 
             if not re_init:
                 print(f"No outliers have been found and there is no need to re-initialise clusters yet."
@@ -1372,37 +1330,32 @@ class OnlineOptimalKMeansPlus(ClusteringAlgorithm):
                 re_fit = True
 
         # re-initialise clusters if necessary for each of the algorithm runs
-        if re_init:
+        # if re_fit:
+        mass_normaliser = [None for c in range(3)]
+        # elif re_init:
+        #
+        #     # get the smallest nonzero mass over all cluster sets
+        #     # all_cluster_masses = np.concatenate([cs.masses for cs in self.cluster_set])
+        #     mass_normaliser = np.array([np.min(cs.masses[cs.masses > 1.0]) if len(cs.masses[cs.masses > 1.0]) else 1.0
+        #                                     for cs in self.cluster_set])
+        #     mass_normaliser = [np.min(mass_normaliser) for c in range(3)]
 
-            # get the smallest nonzero mass over all cluster sets
-            all_cluster_masses = np.concatenate([cs.masses for cs in self.cluster_set])
-            mass_normaliser = np.min(all_cluster_masses[all_cluster_masses > 1.0]) \
-                if len(all_cluster_masses[all_cluster_masses > 1.0]) else 1.0
 
-            fit_results = pool.starmap(initialise_clusters,
+        if re_init or re_fit:
+            fit_results = pool.starmap(fit_clusters,
                                        [(self, {'data': self.data_buf, 'cluster_set': self.cluster_set[c],
                                                 'optimal_num_clusters': self.optimal_num_clusters[c],
                                                 'sample_count': sample_count,
                                                 'weighted_centroids': True,
-                                                'mass_normaliser': mass_normaliser,
+                                                'mass_normaliser': mass_normaliser[c],
+                                                'is_refit': re_fit,
                                                 'time_decay_const': self.time_decay_const}) for c in
                                         range(3)])
+            if re_fit:
+                self.n_samples_since_last_init += len(self.data_buf)
+            else:
+                self.n_samples_since_last_init = len(self.data_buf)
 
-            self.n_samples_since_last_init = len(self.data_buf)
-
-        # otherwise re-fit clusters if possible for each of the parallel algorithm runs
-        elif re_fit:
-
-            fit_results = pool.starmap(fit_clusters,
-                                       [(self, {'data': self.data_buf, 'cluster_set': self.cluster_set[c],
-                                                'optimal_num_clusters': self.optimal_num_clusters[c],
-                                                'weighted_centroids': True,
-                                                'sample_count': sample_count})
-                                        for c in range(3)])
-
-            self.n_samples_since_last_init += len(self.data_buf)
-
-        if re_init or re_fit:
             self.cluster_set = [res[0] for res in fit_results]
             running_time = [res[1] for res in fit_results]
             num_iters = [res[2] for res in fit_results]
@@ -1493,10 +1446,10 @@ class OfflineOptimalKMeansPlus(ClusteringAlgorithm):
         n_samples, n_features = data.shape
 
         # number of synthetic datasets to generate
-        num_syn_datasets = 100
+        num_syn_datasets = 1000
 
         # number of bins to form error_squared histogram
-        num_bins = 1000
+        num_bins = 100
 
         # weights for each sample
         sample_weights = self.sample_weights
@@ -1581,7 +1534,7 @@ class OfflineOptimalKMeansPlus(ClusteringAlgorithm):
         new_cluster_set = ClusterSet(new_clusters)
 
         inertia, compactness, dbi = self.post_fit_update(new_centroids, new_fuzzy_labels, new_cluster_set, data,
-                                                         sample_weights, False)
+                                                         sample_weights, False, mass_normaliser=1.0)
 
         return new_cluster_set, running_time, new_fit.n_iter_, inertia, compactness, dbi
 

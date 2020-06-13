@@ -8,7 +8,7 @@ scenario_names = ['Online Periodic-K Crisp KMeans++', 'Online Periodic-K Fuzzy K
                   'Offline Optimal-K Crisp KMeans++', 'Offline Optimal-K Fuzzy KMeans++',
                   'Online Optimal-K Crisp KMeans++ Window-Size 4',
                   'Online Optimal-K Fuzzy KMeans++ Window-Size 4']
-sim_types = ['ie', 'cs']
+sim_types = ['cs']#, 'ie']
 plot_types = ['centres', 'params', 'metrics']
 
 # copy images to target folder under new name
@@ -55,7 +55,8 @@ for sim_type in sim_types:
                              f" & ${final_results_row.DBI.iloc[0]:.3f}$" \
                              f" & ${final_results_row.Separation.iloc[0]:.3f}$" \
                              f" & ${final_results_row.Inertia.iloc[0]:.3f}$" \
-                             f" & ${final_results_row.RelativeRunningTime.iloc[0]:.3f}$\\\\\n"
+                             f" & ${final_results_row.RelativeRunningTime.iloc[0]:.3f}$\\\\\n" \
+                             f"\hline\n"
             for plot_type in plot_types:
 
 

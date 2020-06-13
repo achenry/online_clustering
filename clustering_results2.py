@@ -1,11 +1,10 @@
 import plotly.graph_objs as go
 import pandas as pd
-from sklearn.metrics.pairwise import euclidean_distances, pairwise_distances
+from sklearn.metrics.pairwise import euclidean_distances
 import numpy as np
 from numpy.linalg import norm
 import os
 import re
-from plotly.subplots import make_subplots
 
 
 class ClusteringResults:
@@ -195,7 +194,7 @@ class ClusteringResults:
         # throws error for large number of data points
         fig.write_image(f"results/{self.test_name}/{customer_id}/params_" + str(len(self.data)) + ".png")
 
-    def plot_cluster_metric_evolution(self, data_step, customer_id, show, last_fig_only, export_all=False):
+    def plot_cluster_metric_evolution(self, data_step, customer_id, show, last_fig_only, export_all=False, actual_metrics=True):
         """
         plot vertical grouped barchart giving number of clusters, count per cluster, mass per cluster with slider
         such that user can see evolution of these parameters over each sample count
@@ -241,11 +240,24 @@ class ClusteringResults:
         # Add duo of traces for each slider step: mass and count for each cluster
         for idx in evolution_range:
 
+            if actual_metrics:
+                cluster_df = pd.DataFrame()
+                std_dev, inertia, count, mass = None, None, None, None
+                if self.num_clusters[idx]:
+                    cluster_df['Centroid'] = self.centroids[idx]
+                    cluster_df['ClusterNumber'] = np.arange(self.num_clusters[idx])
+
+                    # calculate actual final count, standard deviation, compactness, inertia, dbi metrics
+                    std_dev, inertia, count, mass = self.calc_cluster_metrics(cluster_df)
+                else:
+                    cluster_df['Centroid'] = []
+                    cluster_df['ClusterNumber'] = []
+
             fig.add_trace(
                 # cluster masses
                 go.Bar(visible=False,
                        x=np.arange(-0.2, self.num_clusters[idx], 1),
-                       y=self.masses[idx] if not last_fig_only else self.clusters.Mass,
+                       y=self.masses[idx] if not actual_metrics else mass,
                        width=0.4,
                        name='Mass',
                        showlegend=True
@@ -256,7 +268,7 @@ class ClusteringResults:
                 # cluster counts
                 go.Bar(visible=False,
                        x=np.arange(0.2, self.num_clusters[idx], 1),
-                       y=self.inertias[idx] if not last_fig_only else self.clusters.Inertia,
+                       y=self.inertias[idx] if not actual_metrics else inertia,
                        name='Inertia',
                        width=0.4,
                        showlegend=True,
@@ -564,7 +576,7 @@ class ClusteringResults:
         new_cluster_df['ClusterNumber'] = np.arange(final_cluster_set.num_clusters)
 
         # calculate actual final count, standard deviation, compactness, l2_inertia, dbi metrics
-        std_dev, inertia, count = self.calc_cluster_metrics(new_cluster_df)
+        std_dev, inertia, count, mass = self.calc_cluster_metrics(new_cluster_df)
         new_cluster_df['Standard Deviation'] = std_dev.tolist()
         new_cluster_df['Inertia'] = inertia
         new_cluster_df['Count'] = count
@@ -626,11 +638,11 @@ class ClusteringResults:
         :return inertia: sum-squared-error of each cluster
         :return count: count of each cluster
         """
-
         fuzziness = self.input_params.loc[0, 'fuzziness']
         n_clusters = len(cluster_df.index)
         centroids = np.vstack(cluster_df.Centroid.values)
         data = np.vstack(self.data.values)
+        n_samples = len(data)
         n_features = data.shape[1]
         cluster_distances = euclidean_distances(data, centroids, squared=True)
         closest_cluster_indices = np.argmin(cluster_distances, axis=1)
@@ -697,17 +709,17 @@ class ClusteringResults:
         :return compactness: compactness of each cluster
         """
         cluster_distances = euclidean_distances(self.data.values,
-                                                np.vstack(cluster_df.Centroid), squared=True)
+                                                np.vstack(cluster_df.Centroid), squared=False)
         closest_cluster_indices = np.argmin(cluster_distances, axis=1)
+        num_clusters = len(cluster_df.Centroid.index)
 
-        compactness = [[] for k in cluster_df.index]
+        compactness = np.zeros(len(cluster_df.index))
 
         for d, dp in self.data.iterrows():
-            compactness[closest_cluster_indices[d]].append(
-                norm(dp.values - np.vstack(cluster_df.loc[closest_cluster_indices[d], 'Centroid']), 1))
+            compactness[closest_cluster_indices[d]] += \
+                norm(dp.values - np.vstack(cluster_df.loc[closest_cluster_indices[d], 'Centroid']), 1)
 
-        for k, _ in cluster_df.iterrows():
-            compactness[k] = np.mean(compactness[k])
+        compactness /= np.sum(closest_cluster_indices == np.arange(num_clusters)[:, np.newaxis], axis=1)
 
         return compactness
 

@@ -25,44 +25,26 @@ def main():
 
                  'Online Optimal-K Crisp KMeans++ Window-Size 2': {'algorithm': 1, 'window_size': 2, 'alpha': 0.05,  # 4
                                                                    'fuzziness': 1,
-                                                                   'init_num_clusters': 2},
+                                                                   'init_num_clusters': 4},
                  'Online Optimal-K Crisp KMeans++ Window-Size 4': {'algorithm': 1, 'window_size': 4, 'alpha': 0.05,  # 5
                                                                    'fuzziness': 1,
-                                                                   'init_num_clusters': 2},
+                                                                   'init_num_clusters': 4},
                  'Online Optimal-K Crisp KMeans++ Window-Size 8': {'algorithm': 1, 'window_size': 8, 'alpha': 0.05,  # 6
                                                                    'fuzziness': 1,
-                                                                   'init_num_clusters': 2},
+                                                                   'init_num_clusters': 4},
 
                  'Online Optimal-K Fuzzy KMeans++ Window-Size 2': {'algorithm': 1, 'window_size': 2, 'alpha': 0.05,  # 7
                                                                     'fuzziness': 2,
-                                                                   'init_num_clusters': 2},
+                                                                   'init_num_clusters': 4},
                  'Online Optimal-K Fuzzy KMeans++ Window-Size 4': {'algorithm': 1, 'window_size': 4, 'alpha': 0.05,  # 8
                                                                     'fuzziness': 2,
-                                                                   'init_num_clusters': 2},
+                                                                   'init_num_clusters': 4},
                  'Online Optimal-K Fuzzy KMeans++ Window-Size 8': {'algorithm': 1, 'window_size': 8, 'alpha': 0.05,  # 9
                                                                     'fuzziness': 2,
-                                                                   'init_num_clusters': 2},
-
-                 'Online Optimal-K Crisp KMeans++ Window-Size 2 Alpha 0.025': {'algorithm': 1, 'alpha': 0.025,  # 10
-                                                                               'window_size': 2,
-                                                                               'fuzziness': 1,
-                                                                               'init_num_clusters': 2},
-                 'Online Optimal-K Crisp KMeans++ Window-Size 2 Alpha 0.1': {'algorithm': 1, 'alpha': 0.1,  # 11
-                                                                             'window_size': 2,
-                                                                             'fuzziness': 1,
-                                                                             'init_num_clusters': 2},
-
-                 'Online Optimal-K Fuzzy KMeans++ Window-Size 2 Alpha 0.025': {'algorithm': 1, 'alpha': 0.025,  # 12
-                                                                               'window_size': 2,
-                                                                               'fuzziness': 2,
-                                                                               'init_num_clusters': 2},
-                 'Online Optimal-K Fuzzy KMeans++ Window-Size 2 Alpha 0.1': {'algorithm': 1, 'alpha': 0.1,  # 13
-                                                                             'window_size': 2,
-                                                                             'fuzziness': 2,
-                                                                             'init_num_clusters': 2},
+                                                                   'init_num_clusters': 4},
                  }
 
-    scenario_indices = [0,1,2,3,5,8]#[2,3,5,8]#np.arange(0, 13)
+    scenario_indices = [0, 1, 2, 3, 5, 8]
     new_scenarios = {}
     for scenario_index in scenario_indices:
         key = list(scenarios)[scenario_index]
@@ -314,8 +296,9 @@ def main():
                                                           last_fig_only=False if is_online_algorithm else True,
                                                           export_all=True if (final_idx / plotting_data_step) < 25 else False)
                 clustering_results.plot_cluster_metric_evolution(plotting_data_step, cid, show=False,
-                                                                         last_fig_only=False if is_online_algorithm else True,
-                                                                         export_all=True if (final_idx / plotting_data_step) < 25 else False)
+                                                                 last_fig_only=False if is_online_algorithm else True,
+                                                                 export_all=True if (final_idx / plotting_data_step) < 25 else False,
+                                                                 actual_metrics=True)
                 clustering_results.plot_parameter_evolution(plotting_data_step, cid, show=False)
 
                 # shelf[scenario_name][cid] = clustering_results
